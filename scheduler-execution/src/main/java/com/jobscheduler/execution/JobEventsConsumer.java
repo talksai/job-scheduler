@@ -80,6 +80,10 @@ public class JobEventsConsumer implements SmartLifecycle {
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        // fast consumer-group failover: a killed worker's partitions must move to a
+        // survivor well inside the worker-failover SLO (Kafka's default is 45s)
+        config.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10_000);
+        config.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3_000);
 
         ReceiverOptions<String, String> options = ReceiverOptions.<String, String>create(config)
                 .subscription(List.of(props.topic(), props.retryTopic()));

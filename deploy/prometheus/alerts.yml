@@ -2,13 +2,13 @@ groups:
   - name: scheduler-slo
     rules:
       - alert: SchedulerDown
-        expr: up{job="job-scheduler"} == 0
+        expr: max(up{job="job-scheduler"}) == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Scheduler instance is down"
-          description: "Prometheus cannot scrape {{ $labels.instance }} for over a minute."
+          summary: "Every scheduler instance is down"
+          description: "Prometheus cannot scrape any scheduler instance for over a minute."
 
       - alert: SchedulingAccuracyP99High
         expr: scheduler_fire_latency_seconds{quantile="0.99"} > 0.5

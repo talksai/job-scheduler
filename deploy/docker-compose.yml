@@ -48,6 +48,8 @@ services:
       SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/scheduler
       SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/scheduler
       SCHEDULER_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # 5s lease keeps kill-to-new-leader comfortably inside the 10s failover SLO
+      SCHEDULER_COORDINATION_LEASE_TTL_SECONDS: "5"
       HOSTNAME: worker-1
     ports:
       - "8080:8080"
