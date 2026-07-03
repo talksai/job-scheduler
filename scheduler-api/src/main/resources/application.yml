@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: job-scheduler
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/scheduler
+    username: scheduler
+    password: scheduler
+  flyway:
+    url: jdbc:postgresql://localhost:5432/scheduler
+    user: scheduler
+    password: scheduler
+
+scheduler:
+  worker-id: ${HOSTNAME:worker-local}
+  shards: 16
+  poll-interval-ms: 500
+  batch-size: 100
+  poller-enabled: true
+  kafka:
+    bootstrap-servers: localhost:9092
+    topic: job-events
+    retry-topic: job-events.retry
+    dlq-topic: job-events.dlq
+    consumer-group: job-scheduler
+    max-attempts: 3
+    partitions: 8
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    tags:
+      application: job-scheduler
+
+logging:
+  level:
+    com.jobscheduler: INFO

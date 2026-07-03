@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="scheduler-coordinator" />
+        <module name="scheduler-store" />
+        <module name="scheduler-execution" />
+        <module name="scheduler-api" />
+        <module name="scheduler-observability" />
+        <module name="scheduler-core" />
+      </profile>
+    </annotationProcessing>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="scheduler-api" options="-parameters" />
+      <module name="scheduler-coordinator" options="-parameters" />
+      <module name="scheduler-core" options="-parameters" />
+      <module name="scheduler-execution" options="-parameters" />
+      <module name="scheduler-observability" options="-parameters" />
+      <module name="scheduler-store" options="-parameters" />
+    </option>
+  </component>
+</project>

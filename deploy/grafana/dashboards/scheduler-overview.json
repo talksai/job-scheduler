@@ -1,0 +1,53 @@
+{
+  "uid": "scheduler-overview",
+  "title": "Job Scheduler — Overview",
+  "tags": ["job-scheduler"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Jobs created /s",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "rate(scheduler_jobs_created_total[1m])", "legendFormat": "created/s", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Jobs fired /s",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "rate(scheduler_jobs_fired_total[1m])", "legendFormat": "fired/s", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Scheduling accuracy (scheduled vs actual fire)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "scheduler_fire_latency_seconds{quantile=\"0.5\"}", "legendFormat": "p50", "refId": "A" },
+        { "expr": "scheduler_fire_latency_seconds{quantile=\"0.95\"}", "legendFormat": "p95", "refId": "B" },
+        { "expr": "scheduler_fire_latency_seconds{quantile=\"0.99\"}", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Events: published / consumed / retried / DLQ",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "rate(scheduler_events_published_total[1m])", "legendFormat": "published/s", "refId": "A" },
+        { "expr": "rate(scheduler_events_consumed_total[1m])", "legendFormat": "consumed/s", "refId": "B" },
+        { "expr": "rate(scheduler_events_retried_total[1m])", "legendFormat": "retried/s", "refId": "C" },
+        { "expr": "rate(scheduler_events_dlq_total[1m])", "legendFormat": "dlq/s", "refId": "D" }
+      ]
+    }
+  ]
+}
