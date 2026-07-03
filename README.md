@@ -5,6 +5,7 @@ A horizontally-scalable **distributed job scheduler built from scratch** in Java
 **Measured** (two-instance stack, 2026-07-03): sustained **100 fires/s** (≈8.6 M jobs/day equivalent) · scheduling accuracy **p99 = 100 ms** · **0 duplicates** across 18 k loaded fires and SIGKILL chaos · coordinator failover **4–6 s**, worker failover **4–6 s**, both split-brain-safe (fencing proven by a paused-leader chaos run).
 
 **Project docs:** [README](projects/02-job-scheduler/README.md) → [ARCHITECTURE](projects/02-job-scheduler/ARCHITECTURE.md) → [BUILD-PLAN](projects/02-job-scheduler/BUILD-PLAN.md) → [STATUS](projects/02-job-scheduler/STATUS.md) (progress source of truth).
+**Interview prep:** [interview-prep/](interview-prep/README.md) — system walkthrough, trade-offs, deep-dive Q&A, run-and-observe lab.
 
 ## Stack
 
