@@ -1,0 +1,89 @@
+{
+  "uid": "scheduler-coordination",
+  "title": "Job Scheduler — Coordination & Failover",
+  "tags": ["job-scheduler"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Lease epoch (fencing token)",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "max(scheduler_lease_epoch)", "legendFormat": "epoch", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Coordinator leader present",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "green", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "max(scheduler_coordinator_leader)", "legendFormat": "leader", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Shards owned per worker (partition balance)",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "scheduler_shards_owned", "legendFormat": "{{instance}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Rebalances & fencing rejections",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "rate(scheduler_assignments_rebalanced_total[1m])", "legendFormat": "assignment changes/s", "refId": "A" },
+        { "expr": "rate(scheduler_fencing_rejected_total[1m])", "legendFormat": "fenced writes/s", "refId": "B" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Failover durations (SLO: coordinator < 10s, worker < 15s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "scheduler_failover_coordinator_seconds_max", "legendFormat": "coordinator failover max", "refId": "A" },
+        { "expr": "scheduler_failover_worker_seconds_max", "legendFormat": "worker reassignment max", "refId": "B" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "End-to-end execution lag (fired → effect applied)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "scheduler_execution_lag_seconds{quantile=\"0.5\"}", "legendFormat": "p50", "refId": "A" },
+        { "expr": "scheduler_execution_lag_seconds{quantile=\"0.95\"}", "legendFormat": "p95", "refId": "B" },
+        { "expr": "scheduler_execution_lag_seconds{quantile=\"0.99\"}", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Firing alerts",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "ALERTS{alertstate=\"firing\"}", "legendFormat": "{{alertname}}", "refId": "A" }
+      ]
+    }
+  ]
+}

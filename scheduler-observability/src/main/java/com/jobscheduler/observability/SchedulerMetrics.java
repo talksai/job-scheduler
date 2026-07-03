@@ -21,6 +21,14 @@ public class SchedulerMetrics {
     public static final String WHEEL_HYDRATED = "scheduler.wheel.hydrated";
     public static final String DB_PENDING = "scheduler.db.pending";
     public static final String OUTBOX_UNPUBLISHED = "scheduler.outbox.unpublished";
+    public static final String LEASE_EPOCH = "scheduler.lease.epoch";
+    public static final String COORDINATOR_LEADER = "scheduler.coordinator.leader";
+    public static final String SHARDS_OWNED = "scheduler.shards.owned";
+    public static final String REBALANCES = "scheduler.assignments.rebalanced";
+    public static final String FENCING_REJECTED = "scheduler.fencing.rejected";
+    public static final String FAILOVER_COORDINATOR = "scheduler.failover.coordinator";
+    public static final String FAILOVER_WORKER = "scheduler.failover.worker";
+    public static final String EXECUTION_LAG = "scheduler.execution.lag";
     public static final String EVENTS_PUBLISHED = "scheduler.events.published";
     public static final String EVENTS_CONSUMED = "scheduler.events.consumed";
     public static final String EVENTS_DEDUP = "scheduler.events.dedup";
@@ -36,6 +44,14 @@ public class SchedulerMetrics {
     private final AtomicLong wheelTimers = new AtomicLong();
     private final AtomicLong dbPending = new AtomicLong();
     private final AtomicLong outboxUnpublished = new AtomicLong();
+    private final AtomicLong leaseEpoch = new AtomicLong();
+    private final AtomicLong coordinatorLeader = new AtomicLong();
+    private final AtomicLong shardsOwned = new AtomicLong();
+    private final Counter rebalances;
+    private final Counter fencingRejected;
+    private final Timer coordinatorFailover;
+    private final Timer workerFailover;
+    private final Timer executionLag;
     private final Counter eventsPublished;
     private final Counter eventsConsumed;
     private final Counter eventsDedup;
@@ -63,6 +79,26 @@ public class SchedulerMetrics {
                 .description("PENDING jobs in Postgres (durable timers)").register(registry);
         Gauge.builder(OUTBOX_UNPUBLISHED, outboxUnpublished, AtomicLong::get)
                 .description("Outbox rows awaiting publish (outbox lag)").register(registry);
+        Gauge.builder(LEASE_EPOCH, leaseEpoch, AtomicLong::get)
+                .description("Highest coordinator lease epoch seen (the fencing token)").register(registry);
+        Gauge.builder(COORDINATOR_LEADER, coordinatorLeader, AtomicLong::get)
+                .description("1 when this node holds the coordinator lease").register(registry);
+        Gauge.builder(SHARDS_OWNED, shardsOwned, AtomicLong::get)
+                .description("Shards currently assigned to this worker").register(registry);
+        this.rebalances = Counter.builder(REBALANCES)
+                .description("Shard assignment changes written by the coordinator").register(registry);
+        this.fencingRejected = Counter.builder(FENCING_REJECTED)
+                .description("Writes rejected because they carried a stale fencing token").register(registry);
+        this.coordinatorFailover = Timer.builder(FAILOVER_COORDINATOR)
+                .description("Lease-expiry to new-leader-elected duration (coordinator failover SLO)")
+                .register(registry);
+        this.workerFailover = Timer.builder(FAILOVER_WORKER)
+                .description("Worker-death detection to shard-reassignment duration (worker failover SLO)")
+                .register(registry);
+        this.executionLag = Timer.builder(EXECUTION_LAG)
+                .description("Fired-to-effect-applied end-to-end lag (outbox publish + Kafka + consume)")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(registry);
         this.eventsPublished = Counter.builder(EVENTS_PUBLISHED)
                 .description("Events published to Kafka").register(registry);
         this.eventsConsumed = Counter.builder(EVENTS_CONSUMED)
@@ -103,6 +139,38 @@ public class SchedulerMetrics {
 
     public void setDbPending(long count) {
         dbPending.set(count);
+    }
+
+    public void setLeaseEpoch(long epoch) {
+        leaseEpoch.accumulateAndGet(epoch, Math::max);
+    }
+
+    public void setLeader(boolean leader) {
+        coordinatorLeader.set(leader ? 1 : 0);
+    }
+
+    public void setShardsOwned(long count) {
+        shardsOwned.set(count);
+    }
+
+    public void rebalanced(int changes) {
+        rebalances.increment(changes);
+    }
+
+    public void fencingRejected() {
+        fencingRejected.increment();
+    }
+
+    public void coordinatorFailover(Duration downtime) {
+        coordinatorFailover.record(downtime);
+    }
+
+    public void workerFailover(Duration reassignmentDelay) {
+        workerFailover.record(reassignmentDelay);
+    }
+
+    public void executionLag(Duration lag) {
+        executionLag.record(lag.abs());
     }
 
     public void eventsPublished(int count) {

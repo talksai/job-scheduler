@@ -16,7 +16,7 @@ import java.util.Collection;
 public class OutboxStore {
 
     private static final String FETCH_UNPUBLISHED_SQL = """
-            SELECT id, topic, message_key, payload
+            SELECT id, topic, message_key, payload, trace_id
             FROM outbox
             WHERE published_at IS NULL
             ORDER BY id
@@ -31,13 +31,14 @@ public class OutboxStore {
     }
 
     /** Must run inside the caller's transaction — that is the whole point. */
-    public Mono<Void> enqueue(String aggregateId, String topic, String messageKey, String payload) {
-        return db.sql("INSERT INTO outbox (aggregate_id, topic, message_key, payload) " +
-                        "VALUES (:aggregateId, :topic, :messageKey, :payload)")
+    public Mono<Void> enqueue(String aggregateId, String topic, String messageKey, String payload, String traceId) {
+        return db.sql("INSERT INTO outbox (aggregate_id, topic, message_key, payload, trace_id) " +
+                        "VALUES (:aggregateId, :topic, :messageKey, :payload, :traceId)")
                 .bind("aggregateId", aggregateId)
                 .bind("topic", topic)
                 .bind("messageKey", messageKey)
                 .bind("payload", payload)
+                .bind("traceId", traceId)
                 .fetch().rowsUpdated()
                 .then();
     }
@@ -54,7 +55,8 @@ public class OutboxStore {
                         row.get("id", Long.class),
                         row.get("topic", String.class),
                         row.get("message_key", String.class),
-                        row.get("payload", String.class)))
+                        row.get("payload", String.class),
+                        row.get("trace_id", String.class)))
                 .all();
     }
 

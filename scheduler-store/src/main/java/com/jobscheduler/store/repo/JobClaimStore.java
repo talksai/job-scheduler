@@ -34,20 +34,21 @@ public class JobClaimStore {
     private static final String DUE_WINDOW_SQL = """
             SELECT id, next_fire_at
             FROM job
-            WHERE state = 'PENDING' AND next_fire_at <= :until
+            WHERE state = 'PENDING' AND next_fire_at <= :until AND shard = ANY(:shards)
             ORDER BY next_fire_at
             LIMIT :batchSize
             """;
 
     private static final String CLAIM_SQL = """
-            INSERT INTO execution (job_id, fire_epoch, status, claimed_by, claimed_at, lease_until, attempt)
-            VALUES (:jobId, :fireEpoch, 'CLAIMED', :workerId, now(), :leaseUntil, 1)
+            INSERT INTO execution (job_id, fire_epoch, status, claimed_by, claimed_at, lease_until, attempt, fence_epoch)
+            VALUES (:jobId, :fireEpoch, 'CLAIMED', :workerId, now(), :leaseUntil, 1, :fenceEpoch)
             ON CONFLICT (job_id, fire_epoch) DO UPDATE
             SET claimed_by = EXCLUDED.claimed_by,
                 claimed_at = EXCLUDED.claimed_at,
                 lease_until = EXCLUDED.lease_until,
                 attempt = execution.attempt + 1,
-                status = 'CLAIMED'
+                status = 'CLAIMED',
+                fence_epoch = EXCLUDED.fence_epoch
             WHERE execution.status = 'CLAIMED' AND execution.lease_until < now()
             """;
 
@@ -69,11 +70,12 @@ public class JobClaimStore {
                 .all();
     }
 
-    /** Unlocked scan of idx_due for wheel hydration — hints only, no claims. */
-    public Flux<DueTimer> findDueWithinWindow(Instant until, int batchSize) {
+    /** Unlocked scan of idx_due for wheel hydration, scoped to owned shards — hints only, no claims. */
+    public Flux<DueTimer> findDueWithinWindow(Instant until, int batchSize, Collection<Integer> shards) {
         return db.sql(DUE_WINDOW_SQL)
                 .bind("until", until)
                 .bind("batchSize", batchSize)
+                .bind("shards", shards.toArray(Integer[]::new))
                 .map(row -> new DueTimer(row.get("id", UUID.class), row.get("next_fire_at", Instant.class)))
                 .all();
     }
@@ -87,14 +89,16 @@ public class JobClaimStore {
     /**
      * One winner per (jobId, fireEpoch) — the exactly-once anchor. A claim whose
      * lease expired while still CLAIMED (crashed worker) is re-claimable with a
-     * bumped attempt; FIRED/COMPLETED rows are never re-claimable.
+     * bumped attempt; FIRED/COMPLETED rows are never re-claimable. fenceEpoch
+     * records the fencing token the claim was made under.
      */
-    public Mono<Boolean> tryClaim(UUID jobId, long fireEpoch, String workerId, long leaseSeconds) {
+    public Mono<Boolean> tryClaim(UUID jobId, long fireEpoch, String workerId, long leaseSeconds, long fenceEpoch) {
         return db.sql(CLAIM_SQL)
                 .bind("jobId", jobId)
                 .bind("fireEpoch", fireEpoch)
                 .bind("workerId", workerId)
                 .bind("leaseUntil", Instant.now().plusSeconds(leaseSeconds))
+                .bind("fenceEpoch", fenceEpoch)
                 .fetch().rowsUpdated()
                 .map(rows -> rows == 1);
     }

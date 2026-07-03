@@ -10,7 +10,7 @@ Source of truth for targets: `projects/02-job-scheduler/ARCHITECTURE.md` §4.
 | Worker failover, no loss | < 15 s | assignment/rebalance metrics (M3/M4) |
 | DLQ rate | < 0.1 % | `rate(scheduler_events_dlq_total[5m]) / rate(scheduler_events_consumed_total[5m])` |
 
-## Metrics emitted today (M0–M2)
+## Metrics emitted today (M0–M4)
 
 | Meter | Type | Meaning |
 |---|---|---|
@@ -28,6 +28,16 @@ Source of truth for targets: `projects/02-job-scheduler/ARCHITECTURE.md` §4.
 | `scheduler.events.dedup` | counter | duplicate deliveries absorbed by `processed_event` |
 | `scheduler.events.retried` | counter | events bounced to `job-events.retry` |
 | `scheduler.events.dlq` | counter | events dead-lettered |
+| `scheduler.lease.epoch` | gauge | highest coordinator lease epoch seen (fencing token) |
+| `scheduler.coordinator.leader` | gauge | 1 when this node holds the coordinator lease |
+| `scheduler.shards.owned` | gauge | shards assigned to this worker |
+| `scheduler.assignments.rebalanced` | counter | shard assignment changes written by the coordinator |
+| `scheduler.fencing.rejected` | counter | writes rejected for carrying a stale fencing token |
+| `scheduler.failover.coordinator` | timer | lease-expiry → new-leader-elected gap (SLO < 10 s) |
+| `scheduler.failover.worker` | timer | worker-death detection → shard reassignment (SLO < 15 s) |
+| `scheduler.execution.lag` | timer (p50/p95/p99) | fired → effect-applied end-to-end lag |
 
-Scrape endpoint: `/actuator/prometheus`. Dashboards: `deploy/grafana/dashboards/scheduler-overview.json`.
-Remaining SLO meters (partition balance, lease epoch, failover timings) arrive with M3–M4.
+Scrape endpoint: `/actuator/prometheus`.
+Dashboards: `deploy/grafana/dashboards/scheduler-overview.json` + `scheduler-coordination.json`.
+Alert rules (one per SLO + operational guards): `deploy/prometheus/alerts.yml`.
+Tracing: every fire carries a traceId (event field + `x-trace-id` Kafka header) from claim through consumer logs.

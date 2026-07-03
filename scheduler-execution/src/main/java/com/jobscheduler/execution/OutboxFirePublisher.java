@@ -42,9 +42,9 @@ public class OutboxFirePublisher implements FirePublisher {
         return Flux.fromIterable(fired)
                 .concatMap(job -> {
                     JobFiredEvent event = new JobFiredEvent(job.jobId(), job.type(), job.payload(),
-                            job.fireEpoch(), job.scheduledAt(), firedAt);
+                            job.fireEpoch(), job.scheduledAt(), firedAt, job.traceId());
                     return outbox.enqueue(job.jobId().toString(), props.topic(),
-                                    job.jobId().toString(), toJson(event))
+                                    job.jobId().toString(), toJson(event), job.traceId())
                             .then(store.markFired(job.jobId(), job.fireEpoch()));
                 })
                 .then();

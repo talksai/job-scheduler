@@ -78,6 +78,17 @@
       "targets": [
         { "expr": "scheduler_outbox_unpublished", "legendFormat": "unpublished rows", "refId": "A" }
       ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "End-to-end execution lag (fired → effect applied)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "scheduler_execution_lag_seconds{quantile=\"0.5\"}", "legendFormat": "p50", "refId": "A" },
+        { "expr": "scheduler_execution_lag_seconds{quantile=\"0.99\"}", "legendFormat": "p99", "refId": "B" }
+      ]
     }
   ]
 }

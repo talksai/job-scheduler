@@ -5,13 +5,19 @@ import reactor.core.publisher.Mono;
 
 /**
  * Coordination primitive per ARCHITECTURE §6. Keeps the coordinator swappable:
- * M3 delivers PostgresLeaseCoordination (advisory-lock lease, epoch = fencing token);
- * etcd or Raft-backed impls can slot in behind the same contract.
+ * PostgresLeaseCoordination is the primary impl; etcd or Raft-backed impls can
+ * slot in behind the same contract.
  */
 public interface CoordinationService {
 
-    /** Campaign for leadership of a role; the returned epoch is the fencing token. */
+    /**
+     * Campaign for leadership of a role; emits the won Leadership (epoch = the
+     * fencing token) or completes empty when someone else holds a live lease.
+     */
     Mono<Leadership> campaign(String role);
+
+    /** Heartbeat an existing leadership; false means deposed — step down. */
+    Mono<Boolean> renew(Leadership leadership);
 
     /** Shard ranges this worker owns, each stamped with the issuing leader's token. */
     Flux<Assignment> assignments(String workerId);

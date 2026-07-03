@@ -1,0 +1,98 @@
+groups:
+  - name: scheduler-slo
+    rules:
+      - alert: SchedulerDown
+        expr: up{job="job-scheduler"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scheduler instance is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for over a minute."
+
+      - alert: SchedulingAccuracyP99High
+        expr: scheduler_fire_latency_seconds{quantile="0.99"} > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduling accuracy p99 above 500ms SLO"
+          description: "scheduled-vs-actual fire p99 is {{ $value | humanizeDuration }} on {{ $labels.instance }}."
+
+      - alert: DlqRateHigh
+        expr: >
+          rate(scheduler_events_dlq_total[5m])
+            / clamp_min(rate(scheduler_events_consumed_total[5m]) + rate(scheduler_events_dlq_total[5m]), 1e-6)
+          > 0.001
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ rate above 0.1% SLO"
+          description: "Events are dead-lettering at {{ $value | humanizePercentage }}."
+
+      - alert: OutboxLagGrowing
+        expr: scheduler_outbox_unpublished > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox publisher falling behind"
+          description: "{{ $value }} committed events are waiting for the outbox poller — Kafka or the poller is unhealthy."
+
+      - alert: ConsumerStalled
+        expr: >
+          rate(scheduler_events_consumed_total[5m]) == 0
+          and rate(scheduler_events_published_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Events published but none consumed"
+          description: "The idempotent consumer has applied nothing for 5m while events keep flowing."
+
+  - name: scheduler-coordination
+    rules:
+      - alert: NoCoordinatorLeader
+        expr: max(scheduler_coordinator_leader) == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "No coordinator holds the lease"
+          description: "The scheduler has been leaderless for 30s — elections are failing; assignments are frozen."
+
+      - alert: WorkerOwnsNoShards
+        expr: scheduler_shards_owned == 0 and up{job="job-scheduler"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A live worker owns zero shards"
+          description: "{{ $labels.instance }} is up and heartbeating but has no assignments — check the coordinator."
+
+      - alert: FencingRejectionsObserved
+        expr: increase(scheduler_fencing_rejected_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale-token writes were fenced"
+          description: "A deposed coordinator attempted writes ({{ $value }} in 5m). Safe — fencing worked — but investigate why two leaders overlapped."
+
+      - alert: CoordinatorFailoverSlow
+        expr: scheduler_failover_coordinator_seconds_max > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Coordinator failover exceeded the 10s SLO"
+          description: "The last leaderless gap was {{ $value | humanizeDuration }}."
+
+      - alert: WorkerFailoverSlow
+        expr: scheduler_failover_worker_seconds_max > 15
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker failover exceeded the 15s SLO"
+          description: "Dead-worker shards took {{ $value | humanizeDuration }} to reassign."

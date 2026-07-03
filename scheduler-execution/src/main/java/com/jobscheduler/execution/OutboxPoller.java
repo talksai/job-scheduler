@@ -17,6 +17,7 @@ import reactor.core.publisher.Sinks;
 import reactor.kafka.sender.KafkaSender;
 import reactor.kafka.sender.SenderRecord;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 
@@ -93,8 +94,14 @@ public class OutboxPoller implements SmartLifecycle {
 
     private Mono<Void> publish(List<OutboxMessage> batch) {
         return sender.send(Flux.fromIterable(batch)
-                        .map(msg -> SenderRecord.create(
-                                new ProducerRecord<>(msg.topic(), msg.messageKey(), msg.payload()), msg.id())))
+                        .map(msg -> {
+                            ProducerRecord<String, String> record =
+                                    new ProducerRecord<>(msg.topic(), msg.messageKey(), msg.payload());
+                            if (msg.traceId() != null) {
+                                record.headers().add("x-trace-id", msg.traceId().getBytes(StandardCharsets.UTF_8));
+                            }
+                            return SenderRecord.create(record, msg.id());
+                        }))
                 .concatMap(result -> result.exception() != null
                         ? Mono.<Long>error(result.exception())
                         : Mono.just(result.correlationMetadata()))

@@ -1,8 +1,12 @@
 package com.jobscheduler.core;
 
+import com.jobscheduler.coordinator.CoordinationService;
+import com.jobscheduler.coordinator.ShardOwnership;
 import com.jobscheduler.observability.SchedulerMetrics;
 import com.jobscheduler.store.entity.Job;
 import com.jobscheduler.store.repo.JobClaimStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
@@ -25,19 +29,26 @@ import java.util.UUID;
 @Component
 public class FireProcessor {
 
+    private static final Logger log = LoggerFactory.getLogger(FireProcessor.class);
+
     private final JobClaimStore store;
     private final TransactionalOperator tx;
     private final FirePublisher publisher;
     private final SchedulerProperties props;
     private final SchedulerMetrics metrics;
+    private final ShardOwnership ownership;
+    private final CoordinationService coordination;
 
     public FireProcessor(JobClaimStore store, TransactionalOperator tx, FirePublisher publisher,
-                         SchedulerProperties props, SchedulerMetrics metrics) {
+                         SchedulerProperties props, SchedulerMetrics metrics,
+                         ShardOwnership ownership, CoordinationService coordination) {
         this.store = store;
         this.tx = tx;
         this.publisher = publisher;
         this.props = props;
         this.metrics = metrics;
+        this.ownership = ownership;
+        this.coordination = coordination;
     }
 
     /** Fires whichever of the given jobs are still PENDING and due; returns the fire count. */
@@ -63,6 +74,15 @@ public class FireProcessor {
     }
 
     private Flux<FiredJob> fireOne(Job job) {
+        // partition discipline: only the assigned owner fires a shard, and only
+        // under a non-stale token. Skipped jobs stay PENDING for the real owner's
+        // hydration; the execution-claim PK backstops any race regardless.
+        if (!ownership.ownedShards().contains(job.getShard().intValue())
+                || coordination.isFenced(ownership.epoch())) {
+            log.debug("Skipping job {} on shard {} — not owned (epoch {})",
+                    job.getId(), job.getShard(), ownership.epoch());
+            return Flux.empty();
+        }
         Instant now = Instant.now();
         Instant scheduled = job.getNextFireAt();
         boolean late = Duration.between(scheduled, now).toMillis() > props.missedFireThresholdMs();
@@ -97,10 +117,11 @@ public class FireProcessor {
                     // A lost claim means the (jobId, fireEpoch) is already FIRED or held
                     // under a live lease — skip the publish but still advance so the job
                     // never wedges.
-                    return store.tryClaim(job.getId(), fireEpoch, props.workerId(), props.claimLeaseSeconds())
+                    return store.tryClaim(job.getId(), fireEpoch, props.workerId(),
+                                    props.claimLeaseSeconds(), ownership.epoch())
                             .flatMap(claimed -> claimed
                                     ? Mono.just(new FiredJob(job.getId(), job.getType(), job.getPayload(),
-                                            fireEpoch, occurrence, late))
+                                            fireEpoch, occurrence, late, newTraceId()))
                                     : Mono.empty());
                 })
                 .collectList()
@@ -109,5 +130,10 @@ public class FireProcessor {
 
     private Mono<Void> advance(Job job, Instant next) {
         return next == null ? store.complete(job.getId()) : store.reschedule(job.getId(), next);
+    }
+
+    private static String newTraceId() {
+        UUID id = UUID.randomUUID();
+        return Long.toHexString(id.getMostSignificantBits()) + Long.toHexString(id.getLeastSignificantBits());
     }
 }

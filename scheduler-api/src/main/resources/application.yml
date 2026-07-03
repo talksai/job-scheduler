@@ -24,6 +24,12 @@ scheduler:
   claim-lease-seconds: 60
   outbox-poll-interval-ms: 200
   outbox-batch-size: 500
+  coordination:
+    election-interval-ms: 1000
+    lease-ttl-seconds: 10
+    heartbeat-interval-ms: 1000
+    worker-ttl-seconds: 5
+    assignment-poll-ms: 1000
   kafka:
     bootstrap-servers: localhost:9092
     topic: job-events

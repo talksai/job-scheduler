@@ -23,5 +23,13 @@
       <groupId>org.springframework</groupId>
       <artifactId>spring-context</artifactId>
     </dependency>
+    <dependency>
+      <groupId>com.jobscheduler</groupId>
+      <artifactId>scheduler-store</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.jobscheduler</groupId>
+      <artifactId>scheduler-observability</artifactId>
+    </dependency>
   </dependencies>
 </project>

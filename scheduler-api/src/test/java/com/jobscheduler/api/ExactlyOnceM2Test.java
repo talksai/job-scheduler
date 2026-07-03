@@ -93,19 +93,19 @@ class ExactlyOnceM2Test {
         UUID jobId = UUID.randomUUID();
         long epoch = Instant.now().getEpochSecond();
 
-        assertThat(claimStore.tryClaim(jobId, epoch, "worker-1", 60).block())
+        assertThat(claimStore.tryClaim(jobId, epoch, "worker-1", 60, 0L).block())
                 .as("first claim wins").isTrue();
-        assertThat(claimStore.tryClaim(jobId, epoch, "worker-2", 60).block())
+        assertThat(claimStore.tryClaim(jobId, epoch, "worker-2", 60, 0L).block())
                 .as("live lease blocks a second claimant").isFalse();
 
         claimStore.markFired(jobId, epoch).block();
-        assertThat(claimStore.tryClaim(jobId, epoch, "worker-2", 60).block())
+        assertThat(claimStore.tryClaim(jobId, epoch, "worker-2", 60, 0L).block())
                 .as("FIRED is terminal — never re-claimable").isFalse();
 
         // a crashed worker's claim: lease already expired
         long epoch2 = epoch + 1;
-        assertThat(claimStore.tryClaim(jobId, epoch2, "worker-1", -1).block()).isTrue();
-        assertThat(claimStore.tryClaim(jobId, epoch2, "worker-2", 60).block())
+        assertThat(claimStore.tryClaim(jobId, epoch2, "worker-1", -1, 0L).block()).isTrue();
+        assertThat(claimStore.tryClaim(jobId, epoch2, "worker-2", 60, 0L).block())
                 .as("expired lease is re-claimable").isTrue();
 
         Map<String, Object> row = db.sql("SELECT claimed_by, attempt FROM execution " +

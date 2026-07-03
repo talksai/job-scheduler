@@ -25,6 +25,7 @@ import reactor.util.retry.Retry;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +46,7 @@ public class JobEventsConsumer implements SmartLifecycle {
     private static final Logger log = LoggerFactory.getLogger(JobEventsConsumer.class);
     private static final String ATTEMPT_HEADER = "x-attempt";
     private static final String ERROR_HEADER = "x-error";
+    private static final String TRACE_HEADER = "x-trace-id";
 
     private final KafkaProperties props;
     private final KafkaSender<String, String> sender;
@@ -101,12 +103,18 @@ public class JobEventsConsumer implements SmartLifecycle {
                                 : Mono.just(false))
                         .as(tx::transactional)
                         .doOnNext(firstDelivery -> {
+                            String traceId = event.traceId() != null ? event.traceId() : traceOf(record);
                             if (firstDelivery) {
                                 metrics.eventConsumed();
-                                log.debug("Applied event {} from {}", event.eventKey(), record.topic());
+                                if (event.firedAt() != null) {
+                                    metrics.executionLag(java.time.Duration.between(event.firedAt(), Instant.now()));
+                                }
+                                log.debug("Applied event {} from {} traceId={}",
+                                        event.eventKey(), record.topic(), traceId);
                             } else {
                                 metrics.eventDedup();
-                                log.debug("Dedup hit for event {} from {}", event.eventKey(), record.topic());
+                                log.debug("Dedup hit for event {} from {} traceId={}",
+                                        event.eventKey(), record.topic(), traceId);
                             }
                         }))
                 .then();
@@ -116,11 +124,16 @@ public class JobEventsConsumer implements SmartLifecycle {
         int attempt = attemptOf(record) + 1;
         boolean exhausted = attempt >= props.maxAttempts();
         String target = exhausted ? props.dlqTopic() : props.retryTopic();
-        log.warn("Event {} failed (attempt {}), routing to {}: {}", record.key(), attempt, target, error.getMessage());
+        String traceId = traceOf(record);
+        log.warn("Event {} failed (attempt {}), routing to {} traceId={}: {}",
+                record.key(), attempt, target, traceId, error.getMessage());
 
         ProducerRecord<String, String> out = new ProducerRecord<>(target, record.key(), record.value());
         out.headers().add(ATTEMPT_HEADER, Integer.toString(attempt).getBytes(StandardCharsets.UTF_8));
         out.headers().add(ERROR_HEADER, String.valueOf(error.getMessage()).getBytes(StandardCharsets.UTF_8));
+        if (traceId != null) {
+            out.headers().add(TRACE_HEADER, traceId.getBytes(StandardCharsets.UTF_8));
+        }
 
         if (exhausted) {
             metrics.eventDeadLettered();
@@ -128,6 +141,11 @@ public class JobEventsConsumer implements SmartLifecycle {
             metrics.eventRetried();
         }
         return sender.send(Mono.just(SenderRecord.create(out, record.key()))).then();
+    }
+
+    private static String traceOf(ConsumerRecord<String, String> record) {
+        Header header = record.headers().lastHeader(TRACE_HEADER);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
 
     private static int attemptOf(ConsumerRecord<String, String> record) {

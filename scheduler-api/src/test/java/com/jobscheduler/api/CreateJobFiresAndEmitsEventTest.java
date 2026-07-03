@@ -95,6 +95,9 @@ class CreateJobFiresAndEmitsEventTest {
                 for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
                     if (jobId.equals(record.key()) && record.value().contains(jobId)
                             && record.value().contains("fireEpoch")) {
+                        assertThat(record.headers().lastHeader("x-trace-id"))
+                                .as("event carries the propagated traceId header").isNotNull();
+                        assertThat(record.value()).contains("traceId");
                         return true;
                     }
                 }

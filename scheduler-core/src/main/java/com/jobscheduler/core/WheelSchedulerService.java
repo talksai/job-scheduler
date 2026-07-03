@@ -1,5 +1,6 @@
 package com.jobscheduler.core;
 
+import com.jobscheduler.coordinator.ShardOwnership;
 import com.jobscheduler.core.wheel.HierarchicalTimingWheel;
 import com.jobscheduler.core.wheel.TimerEntry;
 import com.jobscheduler.observability.SchedulerMetrics;
@@ -46,6 +47,7 @@ public class WheelSchedulerService implements SmartLifecycle, TimerOffers {
     private final FireProcessor fireProcessor;
     private final SchedulerProperties props;
     private final SchedulerMetrics metrics;
+    private final ShardOwnership ownership;
 
     private final Object lock = new Object();
     private final Set<String> parked = ConcurrentHashMap.newKeySet();
@@ -55,11 +57,13 @@ public class WheelSchedulerService implements SmartLifecycle, TimerOffers {
     private Disposable hydrationLoop;
 
     public WheelSchedulerService(JobClaimStore store, FireProcessor fireProcessor,
-                                 SchedulerProperties props, SchedulerMetrics metrics) {
+                                 SchedulerProperties props, SchedulerMetrics metrics,
+                                 ShardOwnership ownership) {
         this.store = store;
         this.fireProcessor = fireProcessor;
         this.props = props;
         this.metrics = metrics;
+        this.ownership = ownership;
     }
 
     @Override
@@ -128,8 +132,13 @@ public class WheelSchedulerService implements SmartLifecycle, TimerOffers {
     }
 
     private Mono<Void> hydrate() {
+        Set<Integer> shards = ownership.ownedShards();
+        if (shards.isEmpty()) {
+            // not assigned yet (startup, or mid-rebalance) — the durable timers wait in Postgres
+            return Mono.empty();
+        }
         Instant until = Instant.now().plusMillis(props.hydrationWindowMs());
-        return store.findDueWithinWindow(until, props.hydrationBatchSize())
+        return store.findDueWithinWindow(until, props.hydrationBatchSize(), shards)
                 .collectList()
                 .flatMap(candidates -> {
                     List<UUID> immediate = new ArrayList<>();
