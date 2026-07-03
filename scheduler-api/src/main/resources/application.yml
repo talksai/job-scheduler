@@ -13,9 +13,14 @@ spring:
 scheduler:
   worker-id: ${HOSTNAME:worker-local}
   shards: 16
-  poll-interval-ms: 500
-  batch-size: 100
-  poller-enabled: true
+  tick-ms: 100
+  wheel-size: 64
+  hydration-interval-ms: 5000
+  hydration-window-ms: 60000
+  hydration-batch-size: 10000
+  missed-fire-threshold-ms: 5000
+  max-catchup-fires: 100
+  wheel-enabled: true
   kafka:
     bootstrap-servers: localhost:9092
     topic: job-events

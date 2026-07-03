@@ -1,11 +1,13 @@
 package com.jobscheduler.observability;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** All scheduler meters in one place so metric names stay consistent with the SLO doc. */
 public class SchedulerMetrics {
@@ -13,6 +15,11 @@ public class SchedulerMetrics {
     public static final String JOBS_CREATED = "scheduler.jobs.created";
     public static final String JOBS_FIRED = "scheduler.jobs.fired";
     public static final String FIRE_LATENCY = "scheduler.fire.latency";
+    public static final String FIRES_SKIPPED = "scheduler.fires.skipped";
+    public static final String FIRES_CATCHUP = "scheduler.fires.catchup";
+    public static final String WHEEL_TIMERS = "scheduler.wheel.timers";
+    public static final String WHEEL_HYDRATED = "scheduler.wheel.hydrated";
+    public static final String DB_PENDING = "scheduler.db.pending";
     public static final String EVENTS_PUBLISHED = "scheduler.events.published";
     public static final String EVENTS_CONSUMED = "scheduler.events.consumed";
     public static final String EVENTS_RETRIED = "scheduler.events.retried";
@@ -21,6 +28,11 @@ public class SchedulerMetrics {
     private final Counter jobsCreated;
     private final Counter jobsFired;
     private final Timer fireLatency;
+    private final Counter firesSkipped;
+    private final Counter firesCatchup;
+    private final Counter timersHydrated;
+    private final AtomicLong wheelTimers = new AtomicLong();
+    private final AtomicLong dbPending = new AtomicLong();
     private final Counter eventsPublished;
     private final Counter eventsConsumed;
     private final Counter eventsRetried;
@@ -32,9 +44,19 @@ public class SchedulerMetrics {
         this.jobsFired = Counter.builder(JOBS_FIRED)
                 .description("Fires claimed and executed").register(registry);
         this.fireLatency = Timer.builder(FIRE_LATENCY)
-                .description("Scheduled-vs-actual fire latency (scheduling accuracy SLO)")
+                .description("Scheduled-vs-actual fire latency for on-time fires (scheduling accuracy SLO)")
                 .publishPercentiles(0.5, 0.95, 0.99)
                 .register(registry);
+        this.firesSkipped = Counter.builder(FIRES_SKIPPED)
+                .description("Late fires dropped by the SKIP missed-fire policy").register(registry);
+        this.firesCatchup = Counter.builder(FIRES_CATCHUP)
+                .description("Late fires executed by FIRE_ONCE_IMMEDIATELY / FIRE_ALL catch-up").register(registry);
+        this.timersHydrated = Counter.builder(WHEEL_HYDRATED)
+                .description("Timers loaded into the wheel from Postgres").register(registry);
+        Gauge.builder(WHEEL_TIMERS, wheelTimers, AtomicLong::get)
+                .description("Timers currently parked in the in-memory wheel").register(registry);
+        Gauge.builder(DB_PENDING, dbPending, AtomicLong::get)
+                .description("PENDING jobs in Postgres (durable timers)").register(registry);
         this.eventsPublished = Counter.builder(EVENTS_PUBLISHED)
                 .description("Events published to Kafka").register(registry);
         this.eventsConsumed = Counter.builder(EVENTS_CONSUMED)
@@ -49,9 +71,30 @@ public class SchedulerMetrics {
         jobsCreated.increment();
     }
 
-    public void jobFired(Instant scheduledAt, Instant firedAt) {
+    /** Late (catch-up) fires are counted but excluded from the accuracy SLO timer. */
+    public void jobFired(Instant scheduledAt, Instant firedAt, boolean late) {
         jobsFired.increment();
-        fireLatency.record(Duration.between(scheduledAt, firedAt).abs());
+        if (late) {
+            firesCatchup.increment();
+        } else {
+            fireLatency.record(Duration.between(scheduledAt, firedAt).abs());
+        }
+    }
+
+    public void fireSkipped() {
+        firesSkipped.increment();
+    }
+
+    public void timersHydrated(int count) {
+        timersHydrated.increment(count);
+    }
+
+    public void setWheelTimers(long count) {
+        wheelTimers.set(count);
+    }
+
+    public void setDbPending(long count) {
+        dbPending.set(count);
     }
 
     public void eventPublished() {

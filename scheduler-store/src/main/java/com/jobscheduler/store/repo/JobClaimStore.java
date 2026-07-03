@@ -11,24 +11,32 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.UUID;
 
 /**
  * Claim-path SQL. Row locks from {@code FOR UPDATE SKIP LOCKED} only hold within the
- * surrounding transaction, so callers must run {@link #lockDueJobs} and the per-job
+ * surrounding transaction, so callers must run {@link #lockJobsForFire} and the per-job
  * writes inside one {@code TransactionalOperator} scope.
  */
 @Component
 public class JobClaimStore {
 
-    private static final String LOCK_DUE_SQL = """
+    private static final String LOCK_FOR_FIRE_SQL = """
             SELECT id, type, payload, schedule_type, cron_expression, fixed_rate_seconds,
                    fire_at, missed_fire_policy, shard, next_fire_at, state, version, created_at
             FROM job
-            WHERE state = 'PENDING' AND next_fire_at <= now()
+            WHERE id = ANY(:ids) AND state = 'PENDING' AND next_fire_at <= now()
+            ORDER BY next_fire_at
+            FOR UPDATE SKIP LOCKED
+            """;
+
+    private static final String DUE_WINDOW_SQL = """
+            SELECT id, next_fire_at
+            FROM job
+            WHERE state = 'PENDING' AND next_fire_at <= :until
             ORDER BY next_fire_at
             LIMIT :batchSize
-            FOR UPDATE SKIP LOCKED
             """;
 
     private static final String CLAIM_SQL = """
@@ -43,11 +51,31 @@ public class JobClaimStore {
         this.db = db;
     }
 
-    public Flux<Job> lockDueJobs(int batchSize) {
-        return db.sql(LOCK_DUE_SQL)
-                .bind("batchSize", batchSize)
+    /**
+     * Re-verify wheel hints against the source of truth: only rows still PENDING
+     * and actually due are locked for firing. Stale wheel entries (cancelled or
+     * already-fired jobs, sub-tick-early expiries) simply drop out here.
+     */
+    public Flux<Job> lockJobsForFire(Collection<UUID> jobIds) {
+        return db.sql(LOCK_FOR_FIRE_SQL)
+                .bind("ids", jobIds.toArray(UUID[]::new))
                 .map(JobClaimStore::toJob)
                 .all();
+    }
+
+    /** Unlocked scan of idx_due for wheel hydration — hints only, no claims. */
+    public Flux<DueTimer> findDueWithinWindow(Instant until, int batchSize) {
+        return db.sql(DUE_WINDOW_SQL)
+                .bind("until", until)
+                .bind("batchSize", batchSize)
+                .map(row -> new DueTimer(row.get("id", UUID.class), row.get("next_fire_at", Instant.class)))
+                .all();
+    }
+
+    public Mono<Long> countPending() {
+        return db.sql("SELECT count(*) AS pending FROM job WHERE state = 'PENDING'")
+                .map(row -> row.get("pending", Long.class))
+                .one();
     }
 
     /** One winner per (jobId, fireEpoch) — the exactly-once anchor. */

@@ -49,7 +49,7 @@ class CreateJobFiresAndEmitsEventTest {
         registry.add("spring.flyway.user", POSTGRES::getUsername);
         registry.add("spring.flyway.password", POSTGRES::getPassword);
         registry.add("scheduler.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        registry.add("scheduler.poll-interval-ms", () -> "200");
+        registry.add("scheduler.hydration-interval-ms", () -> "1000");
     }
 
     @Autowired

@@ -48,6 +48,26 @@
         { "expr": "rate(scheduler_events_retried_total[1m])", "legendFormat": "retried/s", "refId": "C" },
         { "expr": "rate(scheduler_events_dlq_total[1m])", "legendFormat": "dlq/s", "refId": "D" }
       ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Timers: in-memory wheel vs durable (Postgres PENDING)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "scheduler_wheel_timers", "legendFormat": "wheel (memory)", "refId": "A" },
+        { "expr": "scheduler_db_pending", "legendFormat": "pending (Postgres)", "refId": "B" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Missed-fire handling: skipped / catch-up per second",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "rate(scheduler_fires_skipped_total[1m])", "legendFormat": "skipped/s", "refId": "A" },
+        { "expr": "rate(scheduler_fires_catchup_total[1m])", "legendFormat": "catch-up/s", "refId": "B" }
+      ]
     }
   ]
 }

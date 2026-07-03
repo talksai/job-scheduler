@@ -3,6 +3,7 @@ package com.jobscheduler.api.service;
 import com.jobscheduler.api.web.dto.CreateJobRequest;
 import com.jobscheduler.core.ScheduleCalculator;
 import com.jobscheduler.core.SchedulerProperties;
+import com.jobscheduler.core.TimerOffers;
 import com.jobscheduler.observability.SchedulerMetrics;
 import com.jobscheduler.store.domain.JobState;
 import com.jobscheduler.store.domain.MissedFirePolicy;
@@ -24,14 +25,16 @@ public class JobService {
     private final JobClaimStore claimStore;
     private final SchedulerProperties props;
     private final SchedulerMetrics metrics;
+    private final TimerOffers timerOffers;
 
     public JobService(R2dbcEntityTemplate template, JobRepository repository, JobClaimStore claimStore,
-                      SchedulerProperties props, SchedulerMetrics metrics) {
+                      SchedulerProperties props, SchedulerMetrics metrics, TimerOffers timerOffers) {
         this.template = template;
         this.repository = repository;
         this.claimStore = claimStore;
         this.props = props;
         this.metrics = metrics;
+        this.timerOffers = timerOffers;
     }
 
     public Mono<Job> create(CreateJobRequest request) {
@@ -60,7 +63,11 @@ public class JobService {
         job.setVersion(0L);
         job.setCreatedAt(now);
 
-        return template.insert(job).doOnSuccess(saved -> metrics.jobCreated());
+        return template.insert(job).doOnSuccess(saved -> {
+            metrics.jobCreated();
+            // near-term jobs go straight into the wheel instead of waiting a hydration sweep
+            timerOffers.offer(saved.getId(), saved.getNextFireAt());
+        });
     }
 
     public Mono<Job> get(UUID id) {

@@ -12,7 +12,7 @@
 
   <artifactId>scheduler-core</artifactId>
   <name>scheduler-core</name>
-  <description>Due-detection, claim, schedule computation (timing wheel arrives in M1)</description>
+  <description>Hierarchical timing wheel due-detection, claim/fire path, schedule math, missed-fire policies</description>
 
   <dependencies>
     <dependency>
@@ -26,6 +26,11 @@
     <dependency>
       <groupId>com.jobscheduler</groupId>
       <artifactId>scheduler-observability</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

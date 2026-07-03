@@ -48,7 +48,7 @@ public class KafkaFirePublisher implements FirePublisher {
                     }
                     FiredJob job = result.correlationMetadata();
                     metrics.eventPublished();
-                    metrics.jobFired(job.scheduledAt(), firedAt);
+                    metrics.jobFired(job.scheduledAt(), firedAt, job.late());
                     return store.markFired(job.jobId(), job.fireEpoch());
                 })
                 .then();

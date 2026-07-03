@@ -7,7 +7,12 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record SchedulerProperties(
         @DefaultValue("worker-local") String workerId,
         @DefaultValue("16") int shards,
-        @DefaultValue("500") long pollIntervalMs,
-        @DefaultValue("100") int batchSize,
-        @DefaultValue("true") boolean pollerEnabled) {
+        @DefaultValue("100") long tickMs,
+        @DefaultValue("64") int wheelSize,
+        @DefaultValue("5000") long hydrationIntervalMs,
+        @DefaultValue("60000") long hydrationWindowMs,
+        @DefaultValue("10000") int hydrationBatchSize,
+        @DefaultValue("5000") long missedFireThresholdMs,
+        @DefaultValue("100") int maxCatchupFires,
+        @DefaultValue("true") boolean wheelEnabled) {
 }

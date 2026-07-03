@@ -12,7 +12,7 @@ Java 21 · Spring Boot 3 (WebFlux + Reactor) · R2DBC Postgres · Kafka (KRaft) 
 
 ```
 scheduler-api/           WebFlux REST (create/cancel/query) + bootable app
-scheduler-core/          due-detection, claim, schedule math (timing wheel in M1)
+scheduler-core/          hierarchical timing wheel, claim/fire path, missed-fire policies
 scheduler-execution/     reactor-kafka producer/consumer, retry topics + DLQ
 scheduler-coordinator/   CoordinationService (Postgres-lease leader election in M3)
 scheduler-store/         Flyway schema + R2DBC repositories
