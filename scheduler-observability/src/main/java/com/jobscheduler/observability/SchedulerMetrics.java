@@ -20,8 +20,10 @@ public class SchedulerMetrics {
     public static final String WHEEL_TIMERS = "scheduler.wheel.timers";
     public static final String WHEEL_HYDRATED = "scheduler.wheel.hydrated";
     public static final String DB_PENDING = "scheduler.db.pending";
+    public static final String OUTBOX_UNPUBLISHED = "scheduler.outbox.unpublished";
     public static final String EVENTS_PUBLISHED = "scheduler.events.published";
     public static final String EVENTS_CONSUMED = "scheduler.events.consumed";
+    public static final String EVENTS_DEDUP = "scheduler.events.dedup";
     public static final String EVENTS_RETRIED = "scheduler.events.retried";
     public static final String EVENTS_DLQ = "scheduler.events.dlq";
 
@@ -33,8 +35,10 @@ public class SchedulerMetrics {
     private final Counter timersHydrated;
     private final AtomicLong wheelTimers = new AtomicLong();
     private final AtomicLong dbPending = new AtomicLong();
+    private final AtomicLong outboxUnpublished = new AtomicLong();
     private final Counter eventsPublished;
     private final Counter eventsConsumed;
+    private final Counter eventsDedup;
     private final Counter eventsRetried;
     private final Counter eventsDlq;
 
@@ -57,10 +61,14 @@ public class SchedulerMetrics {
                 .description("Timers currently parked in the in-memory wheel").register(registry);
         Gauge.builder(DB_PENDING, dbPending, AtomicLong::get)
                 .description("PENDING jobs in Postgres (durable timers)").register(registry);
+        Gauge.builder(OUTBOX_UNPUBLISHED, outboxUnpublished, AtomicLong::get)
+                .description("Outbox rows awaiting publish (outbox lag)").register(registry);
         this.eventsPublished = Counter.builder(EVENTS_PUBLISHED)
                 .description("Events published to Kafka").register(registry);
         this.eventsConsumed = Counter.builder(EVENTS_CONSUMED)
-                .description("Events consumed successfully").register(registry);
+                .description("Events consumed and applied (first delivery)").register(registry);
+        this.eventsDedup = Counter.builder(EVENTS_DEDUP)
+                .description("Duplicate deliveries absorbed by processed_event dedup").register(registry);
         this.eventsRetried = Counter.builder(EVENTS_RETRIED)
                 .description("Events routed to the retry topic").register(registry);
         this.eventsDlq = Counter.builder(EVENTS_DLQ)
@@ -97,12 +105,20 @@ public class SchedulerMetrics {
         dbPending.set(count);
     }
 
-    public void eventPublished() {
-        eventsPublished.increment();
+    public void eventsPublished(int count) {
+        eventsPublished.increment(count);
+    }
+
+    public void setOutboxUnpublished(long count) {
+        outboxUnpublished.set(count);
     }
 
     public void eventConsumed() {
         eventsConsumed.increment();
+    }
+
+    public void eventDedup() {
+        eventsDedup.increment();
     }
 
     public void eventRetried() {

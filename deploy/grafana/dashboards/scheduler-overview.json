@@ -45,6 +45,7 @@
       "targets": [
         { "expr": "rate(scheduler_events_published_total[1m])", "legendFormat": "published/s", "refId": "A" },
         { "expr": "rate(scheduler_events_consumed_total[1m])", "legendFormat": "consumed/s", "refId": "B" },
+        { "expr": "rate(scheduler_events_dedup_total[1m])", "legendFormat": "dedup hits/s", "refId": "E" },
         { "expr": "rate(scheduler_events_retried_total[1m])", "legendFormat": "retried/s", "refId": "C" },
         { "expr": "rate(scheduler_events_dlq_total[1m])", "legendFormat": "dlq/s", "refId": "D" }
       ]
@@ -67,6 +68,15 @@
       "targets": [
         { "expr": "rate(scheduler_fires_skipped_total[1m])", "legendFormat": "skipped/s", "refId": "A" },
         { "expr": "rate(scheduler_fires_catchup_total[1m])", "legendFormat": "catch-up/s", "refId": "B" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Outbox lag (rows awaiting publish)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "scheduler_outbox_unpublished", "legendFormat": "unpublished rows", "refId": "A" }
       ]
     }
   ]

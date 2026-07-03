@@ -21,6 +21,9 @@ scheduler:
   missed-fire-threshold-ms: 5000
   max-catchup-fires: 100
   wheel-enabled: true
+  claim-lease-seconds: 60
+  outbox-poll-interval-ms: 200
+  outbox-batch-size: 500
   kafka:
     bootstrap-servers: localhost:9092
     topic: job-events

@@ -16,8 +16,10 @@ import java.util.UUID;
 
 /**
  * The fire path: lock the candidate rows, claim each due occurrence via the
- * execution table, advance the schedule — one transaction — then publish after
- * commit. Fires later than the missed-fire threshold go through the job's
+ * execution table, advance the schedule, and durably enqueue the fire events
+ * (transactional outbox) — ALL in one transaction, so there is no dual-write
+ * window: either the claim, the schedule advance and the event all commit, or
+ * none do. Fires later than the missed-fire threshold go through the job's
  * MissedFirePolicy instead of the normal path.
  */
 @Component
@@ -46,10 +48,18 @@ public class FireProcessor {
         return store.lockJobsForFire(jobIds)
                 .concatMap(this::fireOne)
                 .collectList()
-                .as(tx::transactional)
                 .flatMap(fired -> fired.isEmpty()
-                        ? Mono.just(0)
-                        : publisher.publishAll(fired).thenReturn(fired.size()));
+                        ? Mono.just(fired)
+                        : publisher.enqueueAll(fired).thenReturn(fired))
+                .as(tx::transactional)
+                .flatMap(fired -> {
+                    if (fired.isEmpty()) {
+                        return Mono.just(0);
+                    }
+                    Instant firedAt = Instant.now();
+                    fired.forEach(job -> metrics.jobFired(job.scheduledAt(), firedAt, job.late()));
+                    return publisher.onCommitted(fired).thenReturn(fired.size());
+                });
     }
 
     private Flux<FiredJob> fireOne(Job job) {
@@ -84,10 +94,10 @@ public class FireProcessor {
         return Flux.fromIterable(occurrences)
                 .concatMap(occurrence -> {
                     long fireEpoch = occurrence.getEpochSecond();
-                    // A lost claim means a previous run already owns this (jobId, fireEpoch) —
-                    // skip the publish but still advance so the job never wedges. The
-                    // claim-then-publish crash gap here is what the M2 outbox closes.
-                    return store.tryClaim(job.getId(), fireEpoch, props.workerId())
+                    // A lost claim means the (jobId, fireEpoch) is already FIRED or held
+                    // under a live lease — skip the publish but still advance so the job
+                    // never wedges.
+                    return store.tryClaim(job.getId(), fireEpoch, props.workerId(), props.claimLeaseSeconds())
                             .flatMap(claimed -> claimed
                                     ? Mono.just(new FiredJob(job.getId(), job.getType(), job.getPayload(),
                                             fireEpoch, occurrence, late))

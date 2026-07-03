@@ -40,9 +40,15 @@ public class JobClaimStore {
             """;
 
     private static final String CLAIM_SQL = """
-            INSERT INTO execution (job_id, fire_epoch, status, claimed_by, claimed_at, attempt)
-            VALUES (:jobId, :fireEpoch, 'CLAIMED', :workerId, now(), 1)
-            ON CONFLICT (job_id, fire_epoch) DO NOTHING
+            INSERT INTO execution (job_id, fire_epoch, status, claimed_by, claimed_at, lease_until, attempt)
+            VALUES (:jobId, :fireEpoch, 'CLAIMED', :workerId, now(), :leaseUntil, 1)
+            ON CONFLICT (job_id, fire_epoch) DO UPDATE
+            SET claimed_by = EXCLUDED.claimed_by,
+                claimed_at = EXCLUDED.claimed_at,
+                lease_until = EXCLUDED.lease_until,
+                attempt = execution.attempt + 1,
+                status = 'CLAIMED'
+            WHERE execution.status = 'CLAIMED' AND execution.lease_until < now()
             """;
 
     private final DatabaseClient db;
@@ -78,12 +84,17 @@ public class JobClaimStore {
                 .one();
     }
 
-    /** One winner per (jobId, fireEpoch) — the exactly-once anchor. */
-    public Mono<Boolean> tryClaim(UUID jobId, long fireEpoch, String workerId) {
+    /**
+     * One winner per (jobId, fireEpoch) — the exactly-once anchor. A claim whose
+     * lease expired while still CLAIMED (crashed worker) is re-claimable with a
+     * bumped attempt; FIRED/COMPLETED rows are never re-claimable.
+     */
+    public Mono<Boolean> tryClaim(UUID jobId, long fireEpoch, String workerId, long leaseSeconds) {
         return db.sql(CLAIM_SQL)
                 .bind("jobId", jobId)
                 .bind("fireEpoch", fireEpoch)
                 .bind("workerId", workerId)
+                .bind("leaseUntil", Instant.now().plusSeconds(leaseSeconds))
                 .fetch().rowsUpdated()
                 .map(rows -> rows == 1);
     }
@@ -113,6 +124,16 @@ public class JobClaimStore {
 
     public Mono<Void> markFired(UUID jobId, long fireEpoch) {
         return db.sql("UPDATE execution SET status = 'FIRED' WHERE job_id = :jobId AND fire_epoch = :fireEpoch")
+                .bind("jobId", jobId)
+                .bind("fireEpoch", fireEpoch)
+                .fetch().rowsUpdated()
+                .then();
+    }
+
+    /** Consumer-side: the job's effect has been applied idempotently. */
+    public Mono<Void> markCompleted(UUID jobId, long fireEpoch) {
+        return db.sql("UPDATE execution SET status = 'COMPLETED' " +
+                        "WHERE job_id = :jobId AND fire_epoch = :fireEpoch AND status = 'FIRED'")
                 .bind("jobId", jobId)
                 .bind("fireEpoch", fireEpoch)
                 .fetch().rowsUpdated()

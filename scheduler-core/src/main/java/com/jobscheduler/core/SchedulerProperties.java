@@ -14,5 +14,8 @@ public record SchedulerProperties(
         @DefaultValue("10000") int hydrationBatchSize,
         @DefaultValue("5000") long missedFireThresholdMs,
         @DefaultValue("100") int maxCatchupFires,
-        @DefaultValue("true") boolean wheelEnabled) {
+        @DefaultValue("true") boolean wheelEnabled,
+        @DefaultValue("60") long claimLeaseSeconds,
+        @DefaultValue("200") long outboxPollIntervalMs,
+        @DefaultValue("500") int outboxBatchSize) {
 }

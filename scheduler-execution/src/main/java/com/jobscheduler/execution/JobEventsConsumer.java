@@ -2,6 +2,8 @@ package com.jobscheduler.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobscheduler.observability.SchedulerMetrics;
+import com.jobscheduler.store.repo.JobClaimStore;
+import com.jobscheduler.store.repo.ProcessedEventStore;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -11,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
 import reactor.kafka.receiver.KafkaReceiver;
@@ -27,10 +30,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Consumes job-events + the retry topic. Failed events hop to the retry topic
- * with an incremented x-attempt header and dead-letter once attempts are
- * exhausted. The M0 handler only validates and counts — the idempotent
- * side-effect with processed_event dedup lands in M2.
+ * Idempotent consumer of job-events + the retry topic. Per event, one tx:
+ * insert the event key into processed_event (first delivery wins) and, only on
+ * first delivery, apply the effect (execution FIRED → COMPLETED). Replays are
+ * counted as dedup hits and acked without re-applying. Offsets are acknowledged
+ * strictly AFTER the idempotent write commits, so a crash before the ack only
+ * ever causes a redelivery — never a lost or double-applied effect. Failed
+ * events hop to the retry topic with an incremented x-attempt header and
+ * dead-letter once attempts are exhausted.
  */
 @Component
 public class JobEventsConsumer implements SmartLifecycle {
@@ -43,15 +50,23 @@ public class JobEventsConsumer implements SmartLifecycle {
     private final KafkaSender<String, String> sender;
     private final SchedulerMetrics metrics;
     private final ObjectMapper mapper;
+    private final ProcessedEventStore processedEvents;
+    private final JobClaimStore claimStore;
+    private final TransactionalOperator tx;
 
     private volatile Disposable subscription;
 
     public JobEventsConsumer(KafkaProperties props, KafkaSender<String, String> sender,
-                             SchedulerMetrics metrics, ObjectMapper mapper) {
+                             SchedulerMetrics metrics, ObjectMapper mapper,
+                             ProcessedEventStore processedEvents, JobClaimStore claimStore,
+                             TransactionalOperator tx) {
         this.props = props;
         this.sender = sender;
         this.metrics = metrics;
         this.mapper = mapper;
+        this.processedEvents = processedEvents;
+        this.claimStore = claimStore;
+        this.tx = tx;
     }
 
     @Override
@@ -69,8 +84,9 @@ public class JobEventsConsumer implements SmartLifecycle {
 
         subscription = KafkaReceiver.create(options).receive()
                 .concatMap(record -> handle(record)
-                        .doOnSuccess(v -> metrics.eventConsumed())
                         .onErrorResume(error -> routeFailure(record, error))
+                        // ack only after the idempotent write committed (or the failure
+                        // was routed) — commit-after-write, at-least-once upstream
                         .then(Mono.fromRunnable(() -> record.receiverOffset().acknowledge())), 1)
                 .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(1)).maxBackoff(Duration.ofSeconds(10)))
                 .subscribe();
@@ -79,7 +95,20 @@ public class JobEventsConsumer implements SmartLifecycle {
 
     private Mono<Void> handle(ConsumerRecord<String, String> record) {
         return Mono.fromCallable(() -> mapper.readValue(record.value(), JobFiredEvent.class))
-                .doOnNext(event -> log.debug("Processed event {} from {}", event.eventKey(), record.topic()))
+                .flatMap(event -> processedEvents.markProcessed(event.eventKey())
+                        .flatMap(firstDelivery -> firstDelivery
+                                ? claimStore.markCompleted(event.jobId(), event.fireEpoch()).thenReturn(true)
+                                : Mono.just(false))
+                        .as(tx::transactional)
+                        .doOnNext(firstDelivery -> {
+                            if (firstDelivery) {
+                                metrics.eventConsumed();
+                                log.debug("Applied event {} from {}", event.eventKey(), record.topic());
+                            } else {
+                                metrics.eventDedup();
+                                log.debug("Dedup hit for event {} from {}", event.eventKey(), record.topic());
+                            }
+                        }))
                 .then();
     }
 
