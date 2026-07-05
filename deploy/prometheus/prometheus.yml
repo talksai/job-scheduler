@@ -9,5 +9,5 @@ scrape_configs:
   - job_name: job-scheduler
     metrics_path: /actuator/prometheus
     static_configs:
-      # app2 only exists with the chaos overlay; a down target is harmless otherwise
-      - targets: ["app:8080", "app2:8080"]
+      # app2-app5 only exist with the chaos overlay; down targets are harmless otherwise
+      - targets: ["app:8080", "app2:8080", "app3:8080", "app4:8080", "app5:8080"]

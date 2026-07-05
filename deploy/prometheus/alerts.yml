@@ -20,9 +20,11 @@ groups:
           description: "scheduled-vs-actual fire p99 is {{ $value | humanizeDuration }} on {{ $labels.instance }}."
 
       - alert: DlqRateHigh
+        # fleet-wide ratio: per-instance matching false-positives when one node's
+        # consumer happens to own quiet partitions
         expr: >
-          rate(scheduler_events_dlq_total[5m])
-            / clamp_min(rate(scheduler_events_consumed_total[5m]) + rate(scheduler_events_dlq_total[5m]), 1e-6)
+          sum(rate(scheduler_events_dlq_total[5m]))
+            / clamp_min(sum(rate(scheduler_events_consumed_total[5m])) + sum(rate(scheduler_events_dlq_total[5m])), 1e-6)
           > 0.001
         for: 5m
         labels:
@@ -41,9 +43,11 @@ groups:
           description: "{{ $value }} committed events are waiting for the outbox poller — Kafka or the poller is unhealthy."
 
       - alert: ConsumerStalled
+        # fleet-wide: consumers share one group, so "stalled" only means NO node is
+        # consuming while SOME node publishes (per-instance matching false-positives)
         expr: >
-          rate(scheduler_events_consumed_total[5m]) == 0
-          and rate(scheduler_events_published_total[5m]) > 0
+          sum(rate(scheduler_events_consumed_total[5m])) == 0
+          and sum(rate(scheduler_events_published_total[5m])) > 0
         for: 5m
         labels:
           severity: critical

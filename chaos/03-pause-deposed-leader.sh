@@ -12,28 +12,30 @@ stack_stable
 LEADER=$(leader_worker)
 LEADER_SVC=$(service_of "$LEADER")
 LEADER_PORT=$(port_of "$LEADER")
-SURVIVOR=$(other_worker "$LEADER")
-SURVIVOR_PORT=$(port_of "$SURVIVOR")
+BYSTANDER=$(other_worker "$LEADER")
+API_PORT=$(port_of "$BYSTANDER")
 E0=$(lease_epoch)
-echo "  leader=$LEADER (epoch $E0), survivor=$SURVIVOR"
+echo "  leader=$LEADER (epoch $E0); API via $BYSTANDER"
 
 TYPE="chaos-pause-$(date +%s)"
-TICKER=$(create_ticker "$SURVIVOR_PORT" "$TYPE" 2)
+TICKER=$(create_ticker "$API_PORT" "$TYPE" 2)
 
 $COMPOSE pause "$LEADER_SVC" >/dev/null 2>&1
 echo "  paused $LEADER_SVC (freeze > lease TTL)"
 
-wait_until 15 "survivor takes the lease" check_leader_is "$SURVIVOR"
+wait_until 15 "another node takes the lease" leader_changed "$LEADER"
+NEW_LEADER=$(leader_worker)
 assert_eq "$(lease_epoch)" "$((E0 + 1))" "new fencing token issued"
-wait_until 30 "survivor owns all $TOTAL_SHARDS shards" \
-  check_count "SELECT count(*) FROM shard_assignment WHERE worker_id='$SURVIVOR' AND shard < $TOTAL_SHARDS" "$TOTAL_SHARDS"
+echo "  new leader: $NEW_LEADER"
+wait_until 30 "frozen worker's shards redistributed to the survivors" \
+  check_count "SELECT count(*) FROM shard_assignment WHERE worker_id='$LEADER' AND shard < $TOTAL_SHARDS" 0
 
 sleep 3
 $COMPOSE unpause "$LEADER_SVC" >/dev/null 2>&1
-echo "  unpaused $LEADER_SVC — it resumes with a stale epoch $E0 and stale shard ownership"
+echo "  unpaused $LEADER_SVC — it resumes with stale epoch $E0 and stale shard ownership"
 
 sleep 6  # give the zombie every chance to do damage
-assert_eq "$(leader_worker)" "$SURVIVOR" "deposed leader did NOT steal the lease back"
+assert_eq "$(leader_worker)" "$NEW_LEADER" "deposed leader did NOT steal the lease back"
 assert_eq "$(lease_epoch)" "$((E0 + 1))" "epoch neither regressed nor was re-taken"
 assert_eq "$(metric_of "$LEADER_PORT" scheduler_coordinator_leader)" "0.0" "deposed instance demoted itself"
 
@@ -45,6 +47,7 @@ N=$(exec_count "$TICKER")
 wait_until 15 "ticker keeps firing after the episode (>$N occurrences, all exactly-once)" \
   bash -c "[[ \$($COMPOSE exec -T postgres psql -U scheduler -d scheduler -tAc \"SELECT count(*) FROM execution WHERE job_id='$TICKER'\") -ge $((N + 2)) ]]"
 
-cancel_job "$SURVIVOR_PORT" "$TICKER"
-wait_until 120 "rejoined worker rebalanced back to 8/8" shards_split
+cancel_job "$API_PORT" "$TICKER"
+wait_until 180 "rejoined worker rebalanced back into the fleet" fair_split
+echo "  fleet after rejoin: $(print_split)"
 echo "=== CHAOS 03 PASS ==="

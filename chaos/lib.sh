@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Shared helpers for the chaos suite. Scripts exit non-zero on any violated invariant.
+# The fleet: worker-1..worker-5 (services app, app2..app5; ports 8080..8084).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE="docker compose -f $REPO_ROOT/deploy/docker-compose.yml -f $REPO_ROOT/deploy/docker-compose.chaos.yml"
 TOTAL_SHARDS=16
+ALL_WORKERS=(worker-1 worker-2 worker-3 worker-4 worker-5)
 
 psql_query() {
   $COMPOSE exec -T postgres psql -U scheduler -d scheduler -tAc "$1"
@@ -17,8 +19,11 @@ exec_count()    { psql_query "SELECT count(*) FROM execution WHERE job_id='$1'";
 
 service_of() {
   case "$1" in
-    worker-1) echo app ;;
+    worker-1) echo app  ;;
     worker-2) echo app2 ;;
+    worker-3) echo app3 ;;
+    worker-4) echo app4 ;;
+    worker-5) echo app5 ;;
     *) echo "unknown worker '$1'" >&2; return 1 ;;
   esac
 }
@@ -27,19 +32,46 @@ port_of() {
   case "$1" in
     worker-1) echo 8080 ;;
     worker-2) echo 8081 ;;
+    worker-3) echo 8082 ;;
+    worker-4) echo 8083 ;;
+    worker-5) echo 8084 ;;
   esac
 }
 
+# any worker that is not $1 (deterministic: first in fleet order)
 other_worker() {
-  [[ "$1" == "worker-1" ]] && echo worker-2 || echo worker-1
+  local w
+  for w in "${ALL_WORKERS[@]}"; do
+    if [[ "$w" != "$1" ]]; then echo "$w"; return; fi
+  done
 }
 
-health_ok()    { curl -sf "localhost:$1/actuator/health" 2>/dev/null | grep -q '"UP"'; }
-both_healthy() { health_ok 8080 && health_ok 8081; }
-shards_split() { [[ "$(shards_of worker-1)" == "8" && "$(shards_of worker-2)" == "8" ]]; }
+health_ok() { curl -sf "localhost:$1/actuator/health" 2>/dev/null | grep -q '"UP"'; }
+
+all_healthy() {
+  local w
+  for w in "${ALL_WORKERS[@]}"; do
+    health_ok "$(port_of "$w")" || return 1
+  done
+}
+
+# every worker owns shards, spread is even (max-min <= 1), all 16 assigned to live fleet
+fair_split() {
+  local owners mn mx
+  owners=$(psql_query "SELECT count(DISTINCT worker_id) FROM shard_assignment WHERE shard < $TOTAL_SHARDS")
+  [[ "$owners" == "${#ALL_WORKERS[@]}" ]] || return 1
+  mn=$(psql_query "SELECT min(c) FROM (SELECT count(*) AS c FROM shard_assignment WHERE shard < $TOTAL_SHARDS GROUP BY worker_id) t")
+  mx=$(psql_query "SELECT max(c) FROM (SELECT count(*) AS c FROM shard_assignment WHERE shard < $TOTAL_SHARDS GROUP BY worker_id) t")
+  (( mx - mn <= 1 ))
+}
+
+print_split() {
+  psql_query "SELECT worker_id || '=' || count(*) FROM shard_assignment WHERE shard < $TOTAL_SHARDS GROUP BY worker_id ORDER BY worker_id" | paste -sd' ' -
+}
 
 check_count()     { [[ "$(psql_query "$1")" == "$2" ]]; }
 check_leader_is() { [[ "$(leader_worker)" == "$1" ]]; }
+leader_changed()  { local now; now=$(leader_worker); [[ -n "$now" && "$now" != "$1" ]]; }
 
 metric_of() { # port, metric-name-prefix
   curl -sf "localhost:$1/actuator/prometheus" 2>/dev/null | grep "^$2" | head -1 | awk '{print $NF}'
@@ -84,8 +116,9 @@ cancel_job() { # port, id
 }
 
 stack_stable() {
-  wait_until 120 "both instances healthy" both_healthy
-  wait_until 60 "shards split 8/8 across worker-1/worker-2" shards_split
+  wait_until 240 "all ${#ALL_WORKERS[@]} instances healthy" all_healthy
+  wait_until 90 "shards spread fairly across the fleet" fair_split
+  echo "  fleet: $(print_split) · leader=$(leader_worker) epoch=$(lease_epoch)"
 }
 
 # The core exactly-once reconciliation for a set of jobs identified by type.

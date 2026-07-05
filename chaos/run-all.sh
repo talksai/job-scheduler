@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs the full chaos suite against the two-instance compose stack.
+# Runs the full chaos suite against the five-worker compose fleet.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/lib.sh"
 
-echo ">>> bringing up the two-instance stack"
+echo ">>> bringing up the five-worker fleet"
 $COMPOSE up -d --build
 stack_stable
 
@@ -16,6 +16,8 @@ psql_query "UPDATE job SET state='CANCELLED', next_fire_at=NULL WHERE type LIKE 
 "$HERE/03-pause-deposed-leader.sh"
 
 echo ""
-echo ">>> CHAOS SUITE PASSED — failover timers:"
-echo "    worker-1: coordinator=$(metric_of 8080 scheduler_failover_coordinator_seconds_max)s worker=$(metric_of 8080 scheduler_failover_worker_seconds_max)s fenced-writes=$(metric_of 8080 scheduler_fencing_rejected_total)"
-echo "    worker-2: coordinator=$(metric_of 8081 scheduler_failover_coordinator_seconds_max)s worker=$(metric_of 8081 scheduler_failover_worker_seconds_max)s fenced-writes=$(metric_of 8081 scheduler_fencing_rejected_total)"
+echo ">>> CHAOS SUITE PASSED — failover timers per node:"
+for w in "${ALL_WORKERS[@]}"; do
+  p=$(port_of "$w")
+  echo "    $w: coordinator=$(metric_of "$p" scheduler_failover_coordinator_seconds_max)s worker=$(metric_of "$p" scheduler_failover_worker_seconds_max)s fenced-writes=$(metric_of "$p" scheduler_fencing_rejected_total)"
+done

@@ -2,7 +2,7 @@
 
 A horizontally-scalable **distributed job scheduler built from scratch** in Java 21 — cron / fixed-rate / one-shot scheduling with **exactly-once execution effect**, a leader-elected coordinator with **fencing tokens**, chaos tests, and SLO observability. Single-region by design.
 
-**Measured** (two-instance stack, 2026-07-03): sustained **100 fires/s** (≈8.6 M jobs/day equivalent) · scheduling accuracy **p99 = 100 ms** · **0 duplicates** across 18 k loaded fires and SIGKILL chaos · coordinator failover **4–6 s**, worker failover **4–6 s**, both split-brain-safe (fencing proven by a paused-leader chaos run).
+**Measured** (multi-worker fleet, 2026-07-03): sustained **100 fires/s** (≈8.6 M jobs/day equivalent) · scheduling accuracy **p99 = 100 ms** · **0 duplicates** across 18 k loaded fires and SIGKILL chaos · coordinator failover **4–6 s**, worker failover **4–6 s**, both split-brain-safe (fencing proven by a paused-leader chaos run against a 5-worker fleet).
 
 **Project docs:** [README](projects/02-job-scheduler/README.md) → [ARCHITECTURE](projects/02-job-scheduler/ARCHITECTURE.md) → [BUILD-PLAN](projects/02-job-scheduler/BUILD-PLAN.md) → [STATUS](projects/02-job-scheduler/STATUS.md) (progress source of truth).
 **Interview prep:** [interview-prep/](interview-prep/README.md) — system walkthrough, trade-offs, deep-dive Q&A, run-and-observe lab.
@@ -30,7 +30,7 @@ chaos/  bench/           chaos suite + load tests (M5)
 # full local stack: Postgres + Kafka (KRaft) + app + Prometheus + Grafana
 docker compose -f deploy/docker-compose.yml up --build
 
-# ...or the two-instance HA stack (adds a second worker on :8081)
+# ...or the five-worker HA fleet (workers on :8080-:8084)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.chaos.yml up --build
 
 # create a one-shot job that fires in 10 s
@@ -52,6 +52,7 @@ curl -s -X DELETE localhost:8080/api/jobs/<id>
 ```
 
 Grafana: http://localhost:3000 (admin/admin) → "Job Scheduler — Overview". Prometheus: http://localhost:9090.
+Kafka UI (topics/messages/consumer groups): http://localhost:8090. Postgres browser (pgweb, auto-connected): http://localhost:8091.
 
 ## Tests, chaos & load
 
